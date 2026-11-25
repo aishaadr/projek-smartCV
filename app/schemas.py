@@ -9,3 +9,4 @@ class AnalyzeResponse(BaseModel):
     recommendations: List[str]
     ml_confidence: float
     gemini_score: int
+

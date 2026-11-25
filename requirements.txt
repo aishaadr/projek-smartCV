@@ -7,3 +7,5 @@ sentence-transformers
 keybert
 scikit-learn
 python-dotenv
+streamlit
+plotly

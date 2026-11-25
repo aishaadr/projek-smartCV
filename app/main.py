@@ -85,3 +85,4 @@ async def analyze_cv(
     except Exception as e:
         logger.error(f"Error analisa CV: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Terjadi kesalahan pemrosesan AI: {str(e)}")
+

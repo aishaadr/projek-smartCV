@@ -92,3 +92,4 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     
     recommendations.append(f"Gunakan kata kunci dan istilah teknis standar industri untuk posisi '{target_position}' pada ringkasan profilmu.")
     return final_score, matched_skills, missing_skills, breakdown, recommendations
+
