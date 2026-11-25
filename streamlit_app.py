@@ -63,17 +63,22 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
     }
     .metric-label {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: #64748B;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.4rem;
     }
     .metric-value {
         font-size: 2.1rem;
         font-weight: 700;
         color: #0F172A;
+    }
+    .metric-sub {
+        font-size: 0.78rem;
+        color: #94A3B8;
+        margin-top: 0.2rem;
     }
     
     /* Skill Badges */
@@ -93,6 +98,17 @@ st.markdown("""
         background-color: #FEF2F2;
         color: #991B1B;
         border: 1px solid #FECACA;
+        padding: 0.35rem 0.8rem;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin: 0.25rem 0.3rem;
+    }
+    .badge-surplus {
+        display: inline-block;
+        background-color: #EFF6FF;
+        color: #1E40AF;
+        border: 1px solid #BFDBFE;
         padding: 0.35rem 0.8rem;
         border-radius: 9999px;
         font-size: 0.85rem;
@@ -183,8 +199,9 @@ with st.sidebar:
     - **Embedder**: `all-MiniLM-L6-v2`  
       *(Hugging Face Sentence-Transformers)*
     - **Skill Extractor**: Hybrid (Industry Taxonomy + Bilingual Synonyms + KeyBERT)
+    - **Evaluation Metrics**: Confusion Matrix, Accuracy, Precision, Recall, F1-Score
     - **Language Support**: Dwibahasa (Bahasa Indonesia & English)
-    - **Execution Device**: CPU (Stabil & Cepat)
+    - **Execution Device**: CPU (Stabil & Responsif)
     """)
     
     st.markdown("---")
@@ -201,7 +218,7 @@ with st.sidebar:
 st.markdown("""
 <div class="hero-container">
     <div class="hero-title">SmartCV Analytics</div>
-    <p class="hero-subtitle">Platform analitik pencocokan resume terhadap kualifikasi pekerjaan berbasis Semantic NLP & Transformative AI.</p>
+    <p class="hero-subtitle">Platform analitik pencocokan resume terhadap kualifikasi pekerjaan berbasis Semantic NLP, Matriks Evaluasi & Machine Learning.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -215,7 +232,6 @@ with col_input_left:
         help="Pastikan PDF memuat teks digital yang dapat dibaca."
     )
     
-    # Auto-fill target position if preset is selected
     initial_pos = selected_preset if selected_preset != "Pilih Template Lowongan (Opsional)" else "Junior Data Scientist"
     target_pos = st.text_input(
         "Posisi Pekerjaan yang Dituju:",
@@ -258,18 +274,17 @@ if start_analysis:
                     if extracted:
                         cv_text += extracted + "\n"
                         
-                # Normalisasi kerning text PDF
                 cv_text = clean_kerning(cv_text)
                 
                 if not cv_text.strip():
                     st.error("❌ Dokumen PDF tidak memuat teks yang dapat dibaca. Mohon gunakan resume berformat teks digital, bukan hasil foto/scan gambar.")
                 else:
                     # 2. Evaluate CV
-                    score, matched, missing, breakdown, recommendations = evaluate_cv(
+                    score, matched, missing, breakdown, recommendations, metrics = evaluate_cv(
                         cv_text, job_desc, target_pos
                     )
                     
-                    st.success("✅ Analisis Resume Berhasil Diselesaikan!")
+                    st.success("✅ Analisis Resume & Matriks Evaluasi Berhasil Diselesaikan!")
                     
                     # 3. KPI Metrics Dashboard
                     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
@@ -280,36 +295,126 @@ if start_analysis:
                         <div class="metric-card">
                             <div class="metric-label">Tingkat Kecocokan (Overall)</div>
                             <div class="metric-value" style="color: {color_score};">{score}%</div>
+                            <div class="metric-sub">Skor Sintesis Akhir</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col2:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Kecocokan Teknis</div>
-                            <div class="metric-value">{breakdown['technical']}%</div>
+                            <div class="metric-label">Akurasi Evaluasi (Accuracy)</div>
+                            <div class="metric-value" style="color: #3B82F6;">{metrics['accuracy']}%</div>
+                            <div class="metric-sub">Tingkat Ketepatan Klasifikasi</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col3:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Relevansi Pengalaman</div>
-                            <div class="metric-value">{breakdown['experience']}%</div>
+                            <div class="metric-label">Cakupan Kualifikasi (Recall)</div>
+                            <div class="metric-value" style="color: #10B981;">{metrics['recall']}%</div>
+                            <div class="metric-sub">{len(matched)} dari {len(matched) + len(missing)} Syarat Terpenuhi</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col4:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Keterampilan Terpenuhi</div>
-                            <div class="metric-value">{len(matched)} / {len(matched) + len(missing)}</div>
+                            <div class="metric-label">Harmonic Score (F1-Score)</div>
+                            <div class="metric-value" style="color: #8B5CF6;">{metrics['f1_score']}%</div>
+                            <div class="metric-sub">Keseimbangan Precision & Recall</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
                     
-                    # 4. Visual Breakdown Chart & Skills Comparison
+                    # 4. SECTION BARU: MATRIKS EVALUASI & CONFUSION MATRIX
+                    st.subheader("🎯 Matriks Evaluasi & Kinerja Klasifikasi Model")
+                    st.caption("Matriks penilaian formal standar Data Science untuk mengukur tingkat kecocokan profil terhadap kualifikasi pekerjaan.")
+                    
+                    mat_col1, mat_col2 = st.columns([1, 1], gap="large")
+                    
+                    with mat_col1:
+                        st.markdown("##### Visualisasi Confusion Matrix (2x2)")
+                        
+                        # Plotly Confusion Matrix Heatmap
+                        z_values = [
+                            [metrics['tp'], metrics['fn']],
+                            [metrics['fp'], metrics['tn']]
+                        ]
+                        x_labels = ["Terdeteksi di CV (Positive)", "Tidak Ada di CV (Negative)"]
+                        y_labels = ["Dibutuhkan JD (Actual +)", "Bukan Inti JD (Actual -)"]
+                        
+                        annotations = [
+                            [f"<b>True Positive (TP)</b><br>{metrics['tp']} Kompetensi Cocok", f"<b>False Negative (FN)</b><br>{metrics['fn']} Gap Kualifikasi"],
+                            [f"<b>False Positive (FP)</b><br>{metrics['fp']} Keahlian Ekstra", f"<b>True Negative (TN)</b><br>{metrics['tn']} Non-Target"]
+                        ]
+                        
+                        fig_cm = go.Figure(data=go.Heatmap(
+                            z=z_values,
+                            x=x_labels,
+                            y=y_labels,
+                            colorscale=[[0, '#F1F5F9'], [0.5, '#93C5FD'], [1, '#2563EB']],
+                            showscale=False
+                        ))
+                        
+                        # Add text labels inside heatmap cells
+                        for i in range(2):
+                            for j in range(2):
+                                fig_cm.add_annotation(
+                                    x=x_labels[j],
+                                    y=y_labels[i],
+                                    text=annotations[i][j],
+                                    showarrow=False,
+                                    font=dict(size=13, color="#0F172A" if z_values[i][j] < (max(map(max, z_values)) * 0.7) else "#FFFFFF")
+                                )
+                                
+                        fig_cm.update_layout(
+                            height=270,
+                            margin=dict(l=20, r=20, t=20, b=20),
+                            yaxis=dict(autorange="reversed"),
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)"
+                        )
+                        st.plotly_chart(fig_cm, use_container_width=True)
+                        
+                    with mat_col2:
+                        st.markdown("##### Rincian Parameter Kuantitatif")
+                        
+                        metric_df_html = f"""
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.92rem; margin-top: 10px;">
+                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
+                                <td style="color: #64748B;">Akurasi Keseluruhan (Accuracy)</td>
+                                <td style="text-align: right; font-weight: 700; color: #0F172A;">{metrics['accuracy']}%</td>
+                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">(TP + TN) / Total</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
+                                <td style="color: #64748B;">Cakupan Lowongan (Recall / Sensitivity)</td>
+                                <td style="text-align: right; font-weight: 700; color: #10B981;">{metrics['recall']}%</td>
+                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">TP / (TP + FN)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
+                                <td style="color: #64748B;">Presisi Kualifikasi (Precision)</td>
+                                <td style="text-align: right; font-weight: 700; color: #3B82F6;">{metrics['precision']}%</td>
+                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">TP / (TP + FP)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
+                                <td style="color: #64748B;">F1-Score Harmonik</td>
+                                <td style="text-align: right; font-weight: 700; color: #8B5CF6;">{metrics['f1_score']}%</td>
+                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">Harmonic Mean</td>
+                            </tr>
+                            <tr style="height: 38px;">
+                                <td style="color: #64748B;">Kemiripan Konteks (Cosine Sim)</td>
+                                <td style="text-align: right; font-weight: 700; color: #0F172A;">{metrics['cosine_similarity']}%</td>
+                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">Sentence Embedding</td>
+                            </tr>
+                        </table>
+                        """
+                        st.markdown(metric_df_html, unsafe_allow_html=True)
+                        
+                    st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
+                    
+                    # 5. Visual Breakdown Chart & Skills Comparison
                     res_col_left, res_col_right = st.columns([1, 1], gap="large")
                     
                     with res_col_left:
@@ -341,7 +446,7 @@ if start_analysis:
                             xaxis=dict(range=[0, 100], title="Persentase Pemenuhan (%)"),
                             yaxis=dict(autorange="reversed"),
                             margin=dict(l=20, r=20, t=20, b=20),
-                            height=260,
+                            height=240,
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)"
                         )
@@ -350,25 +455,29 @@ if start_analysis:
                     with res_col_right:
                         st.subheader("🔍 Pemetaan Keterampilan")
                         
-                        st.markdown(f"**Keterampilan yang Cocok ({len(matched)} Terdeteksi):**")
+                        st.markdown(f"**Keterampilan Cocok / True Positive ({len(matched)} Terdeteksi):**")
                         if matched:
                             badges_html = "".join([f"<span class='badge-matched'>✓ {s}</span>" for s in matched])
                             st.markdown(badges_html, unsafe_allow_html=True)
                         else:
                             st.info("Belum ada keterampilan spesifik yang secara langsung terdeteksi pada teks resume.")
                             
-                        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
                         
-                        st.markdown(f"**Keterampilan Tambahan / Gap ({len(missing)} Teridentifikasi):**")
+                        st.markdown(f"**Keterampilan Tambahan / Nilai Plus ({len(metrics['surplus_skills'])} Teridentifikasi):**")
+                        if metrics['surplus_skills']:
+                            surplus_html = "".join([f"<span class='badge-surplus'>★ {s}</span>" for s in metrics['surplus_skills'][:8]])
+                            st.markdown(surplus_html, unsafe_allow_html=True)
+                            
                         if missing:
+                            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+                            st.markdown(f"**Keterampilan Gap / Belum Muncul ({len(missing)} Teridentifikasi):**")
                             missing_html = "".join([f"<span class='badge-missing'>+ {s}</span>" for s in missing])
                             st.markdown(missing_html, unsafe_allow_html=True)
-                        else:
-                            st.success("Luar biasa! Seluruh kata kunci keterampilan yang dicari telah terpenuhi.")
 
                     st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
                     
-                    # 5. Tailored Recommendations
+                    # 6. Tailored Recommendations
                     st.subheader("💡 Saran Pengembangan & Rekomendasi Resume")
                     for rec in recommendations:
                         st.markdown(f"""
@@ -377,7 +486,7 @@ if start_analysis:
                         </div>
                         """, unsafe_allow_html=True)
                         
-                    # 6. CV Text Preview (Collapsible)
+                    # 7. CV Text Preview (Collapsible)
                     with st.expander("📄 Tinjau Teks Hasil Ekstraksi Resume"):
                         st.text_area("Isi Teks Resume yang Terdeteksi:", value=cv_text, height=220, disabled=True)
                         

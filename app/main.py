@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pypdf import PdfReader
-from app.schemas import AnalyzeResponse
+from app.schemas import AnalyzeResponse, EvaluationMetrics
 from app.model import evaluate_cv
 
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ def get_categories():
     """Kategori posisi pekerjaan populer."""
     return {
         "categories": [
-            "Software Engineer",
+            "Junior Data Scientist",
             "Data Scientist",
             "Machine Learning Engineer",
             "DevOps Engineer",
@@ -68,7 +68,7 @@ async def analyze_cv(
             raise HTTPException(status_code=400, detail="PDF kosong atau berupa hasil scan gambar tanpa teks.")
         
         # Evaluasi menggunakan Model Hugging Face
-        score, matched, missing, breakdown, recs = evaluate_cv(
+        score, matched, missing, breakdown, recs, metrics = evaluate_cv(
             cv_text, job_description, target_position
         )
         return AnalyzeResponse(
@@ -78,11 +78,11 @@ async def analyze_cv(
             breakdown=breakdown,
             recommendations=recs,
             ml_confidence=float(score),
-            gemini_score=score
+            gemini_score=score,
+            evaluation_metrics=EvaluationMetrics(**metrics)
         )
     except HTTPException as he:
         raise he
     except Exception as e:
         logger.error(f"Error analisa CV: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Terjadi kesalahan pemrosesan AI: {str(e)}")
-

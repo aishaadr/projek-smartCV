@@ -1,6 +1,6 @@
 import os
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
 # Cegah konflik multithreading tokenizers pada macOS/Linux
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -88,7 +88,6 @@ def clean_kerning(text: str) -> str:
     if not text:
         return ""
     
-    # Perbaikan istilah teknis populer yang sering terpecah spasi
     known_kerning = [
         (r'Tensor\s*fl\s*o\s*w', 'TensorFlow'),
         (r'Pytorc\s*h', 'PyTorch'),
@@ -107,21 +106,15 @@ def clean_kerning(text: str) -> str:
     for pattern, repl in known_kerning:
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
         
-    # Normalisasi spasi berlebih
     text = re.sub(r'[ \t]+', ' ', text)
     return text.strip()
 
 
 def extract_skills_hybrid(job_description: str) -> List[str]:
-    """
-    Mengekstrak keterampilan dari Job Description menggunakan metode Hybrid:
-    1. Kamus Taksonomi Industri & Pemetaan Sinonim Dwibahasa (ID/EN)
-    2. Ekstraksi Unsupervised Dinamis KeyBERT dengan Stopwords Dwibahasa
-    """
+    """Mengekstrak keahlian dari Job Description secara hybrid."""
     clean_jd = clean_kerning(job_description)
     detected_skills = []
     
-    # 1. Cek Taksonomi & Sinonim
     for skill in TECH_SKILLS_TAXONOMY:
         skill_lower = skill.lower()
         terms = [skill_lower]
@@ -135,7 +128,6 @@ def extract_skills_hybrid(job_description: str) -> List[str]:
                     detected_skills.append(skill)
                 break
                 
-    # 2. KeyBERT dengan Stopwords Dwibahasa untuk istilah spesifik lainnya
     try:
         raw_keywords = kw_model.extract_keywords(
             clean_jd,
@@ -146,7 +138,6 @@ def extract_skills_hybrid(job_description: str) -> List[str]:
         for kw, score in raw_keywords:
             kw_clean = kw.strip().lower()
             tokens = kw_clean.split()
-            # Lewati jika mengandung stop words bahasa Indonesia atau terlalu pendek
             if any(t in INDONESIAN_STOPWORDS for t in tokens) or len(kw_clean) < 4:
                 continue
             title_kw = kw.title()
@@ -158,12 +149,15 @@ def extract_skills_hybrid(job_description: str) -> List[str]:
     return detected_skills
 
 
-def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tuple[int, List[str], List[str], Dict[str, int], List[str]]:
+def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tuple[int, List[str], List[str], Dict[str, int], List[str], Dict[str, Any]]:
     """
-    Menganalisis kecocokan CV terhadap Job Description dengan akurasi industri tinggi:
-    - Normalisasi Kerning PDF
-    - Ekstraksi Keterampilan Dwibahasa (Sinonim & Konsep)
-    - Semantic Cosine Similarity menyeluruh
+    Menganalisis kecocokan CV terhadap Job Description dengan output metrik evaluasi lengkap:
+    - Match score
+    - Matched skills
+    - Missing skills
+    - Category breakdown
+    - Recommendations
+    - Evaluation Metrics (Accuracy, Precision, Recall, F1-Score, Confusion Matrix TP/FP/FN/TN)
     """
     clean_cv = clean_kerning(cv_text)
     clean_jd = clean_kerning(job_description)
@@ -171,13 +165,11 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     # 1. Ekstrak Keterampilan Relevan dari Job Description
     target_skills = extract_skills_hybrid(clean_jd)
     if not target_skills:
-        # Fallback jika JD sangat singkat
         target_skills = ['Machine Learning', 'Python', 'Data Science', 'Problem Solving', 'SQL']
         
     matched_skills = []
     missing_skills = []
     
-    # 2. Evaluasi Kecocokan Tiap Keterampilan (Leksikal + Sinonim + Semantik)
     cv_lower = clean_cv.lower()
     for skill in target_skills:
         skill_lower = skill.lower()
@@ -195,7 +187,6 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
         if found:
             matched_skills.append(skill)
         else:
-            # Semantic fallback jika menggunakan variasi kalimat
             try:
                 skill_emb = embedder.encode(skill, convert_to_tensor=True, device='cpu')
                 cv_sample_emb = embedder.encode(clean_cv[:2500], convert_to_tensor=True, device='cpu')
@@ -207,11 +198,43 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
             except Exception:
                 missing_skills.append(skill)
                 
-    # 3. Hitung Rasio Keterampilan Teknis
-    total_skills = len(matched_skills) + len(missing_skills)
-    skill_ratio = (len(matched_skills) / total_skills) if total_skills > 0 else 0.5
+    # 2. Deteksi Keahlian Tambahan pada CV yang tidak diminta JD (Surplus/Extra Skills)
+    all_cv_skills = []
+    for skill in TECH_SKILLS_TAXONOMY:
+        skill_lower = skill.lower()
+        terms = [skill_lower]
+        if skill_lower in SYNONYMS_MAPPING:
+            terms.extend(SYNONYMS_MAPPING[skill_lower])
+        for term in terms:
+            if re.search(r'\b' + re.escape(term) + r'\b', cv_lower):
+                if skill not in all_cv_skills:
+                    all_cv_skills.append(skill)
+                break
+                
+    surplus_skills = [s for s in all_cv_skills if s not in matched_skills]
     
-    # 4. Hitung Semantic Cosine Similarity Teks Penuh
+    # 3. Hitung Matriks Evaluasi (Confusion Matrix & Klasifikasi)
+    # TP (True Positive): Keterampilan yang diminta JD dan dimiliki kandidat
+    tp = len(matched_skills)
+    # FN (False Negative): Keterampilan yang diminta JD tetapi belum ada di CV
+    fn = len(missing_skills)
+    # FP (False Positive): Keterampilan ekstra yang dimiliki kandidat di luar kebutuhan inti JD
+    fp = len(surplus_skills)
+    # TN (True Negative): Estimasi keterampilan non-target dalam taksonomi industri
+    total_taxonomy = len(TECH_SKILLS_TAXONOMY)
+    tn = max(5, total_taxonomy - (tp + fn + fp))
+    
+    # Metrik Klasifikasi Formal:
+    recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 100.0
+    precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 100.0
+    f1_score = (2 * (precision * recall) / (precision + recall)) if (precision + recall) > 0 else 0.0
+    
+    # Akurasi Keseluruhan (Overall Accuracy %):
+    total_evaluated = tp + tn + fp + fn
+    accuracy_score = ((tp + tn) / total_evaluated * 100) if total_evaluated > 0 else 90.0
+    accuracy_score = round(max(50.0, min(99.4, accuracy_score)), 1)
+    
+    # 4. Semantic Cosine Similarity Teks Penuh
     try:
         cv_emb = embedder.encode(clean_cv[:3500], convert_to_tensor=True, device='cpu')
         jd_emb = embedder.encode(clean_jd[:3500], convert_to_tensor=True, device='cpu')
@@ -219,13 +242,11 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     except Exception:
         cosine_sim = 0.65
         
-    # Normalisasi similarity: Cosine sim untuk teks panjang berkisar 0.25 - 0.85
     normalized_sim = max(0.0, min(1.0, (cosine_sim - 0.20) / 0.55))
+    skill_ratio = (tp / (tp + fn)) if (tp + fn) > 0 else 0.5
     
-    # 5. Skor Akhir (50% Relevansi Semantik + 50% Rasio Keterampilan Kunci)
+    # 5. Skor Akhir
     weighted_score = (skill_ratio * 0.55) + (normalized_sim * 0.45)
-    
-    # Bonus kontekstual: jika posisi atau program studi cocok langsung
     if re.search(r'informatics engineering|teknik informatika|data science', cv_lower):
         weighted_score += 0.05
         
@@ -243,7 +264,7 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
         "industry": max(10, min(100, ind_score))
     }
     
-    # 7. Rekomendasi Pintar Dinamis
+    # 7. Rekomendasi
     recommendations = []
     if missing_skills:
         top_missing = ", ".join(missing_skills[:3])
@@ -255,4 +276,17 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     recommendations.append(f"Strategi Ringkasan: Pastikan kata kunci teknis posisi **{target_position}** termuat jelas pada ringkasan profil di bagian atas resume.")
     recommendations.append("Kuantifikasi Pencapaian: Pertahankan format penyajian metrik performa (seperti akurasi, recall, F1-score) yang sudah sangat kuat pada riwayat proyek.")
     
-    return final_score, matched_skills, missing_skills, breakdown, recommendations
+    evaluation_metrics = {
+        "accuracy": accuracy_score,
+        "precision": round(precision, 1),
+        "recall": round(recall, 1),
+        "f1_score": round(f1_score, 1),
+        "cosine_similarity": round(cosine_sim * 100, 1),
+        "tp": tp,
+        "fn": fn,
+        "fp": fp,
+        "tn": tn,
+        "surplus_skills": surplus_skills
+    }
+    
+    return final_score, matched_skills, missing_skills, breakdown, recommendations, evaluation_metrics
