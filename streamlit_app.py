@@ -8,8 +8,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import streamlit as st
 import plotly.graph_objects as go
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer, util
-from keybert import KeyBERT
+
+# Import model & engine dari app.model
+from app.model import evaluate_cv, clean_kerning
 
 # ==========================================
 # PAGE CONFIGURATION & THEME
@@ -81,22 +82,22 @@ st.markdown("""
         background-color: #ECFDF5;
         color: #065F46;
         border: 1px solid #A7F3D0;
-        padding: 0.3rem 0.75rem;
+        padding: 0.35rem 0.8rem;
         border-radius: 9999px;
         font-size: 0.85rem;
-        font-weight: 500;
-        margin: 0.2rem 0.25rem;
+        font-weight: 600;
+        margin: 0.25rem 0.3rem;
     }
     .badge-missing {
         display: inline-block;
         background-color: #FEF2F2;
         color: #991B1B;
         border: 1px solid #FECACA;
-        padding: 0.3rem 0.75rem;
+        padding: 0.35rem 0.8rem;
         border-radius: 9999px;
         font-size: 0.85rem;
-        font-weight: 500;
-        margin: 0.2rem 0.25rem;
+        font-weight: 600;
+        margin: 0.25rem 0.3rem;
     }
     
     /* Recommendations Box */
@@ -121,112 +122,25 @@ st.markdown("""
 
 
 # ==========================================
-# MODEL INITIALIZATION (CACHED)
-# ==========================================
-@st.cache_resource(show_spinner="Memuat model Hugging Face (Sentence-Transformers & KeyBERT)...")
-def load_ai_models():
-    """Memuat model NLP ke memori satu kali saja dengan device='cpu' untuk stabilitas mutlak."""
-    embedder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-    kw_model = KeyBERT(model=embedder)
-    return embedder, kw_model
-
-embedder, kw_model = load_ai_models()
-
-
-# ==========================================
-# CORE NLP & RESUME MATCHING ENGINE
-# ==========================================
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
-
-def extract_skills_keybert(job_description: str, top_n: int = 12):
-    """Mengekstrak kata kunci keterampilan secara semantik dari job description."""
-    keywords = kw_model.extract_keywords(
-        job_description,
-        keyphrase_ngram_range=(1, 2),
-        stop_words='english',
-        top_n=top_n
-    )
-    return [kw[0].title() for kw in keywords]
-
-def evaluate_cv(cv_text: str, job_description: str, target_position: str):
-    clean_cv = clean_text(cv_text)
-    clean_jd = clean_text(job_description)
-    
-    # 1. Hitung Semantic Cosine Similarity (Sentence Transformers)
-    cv_emb = embedder.encode(clean_cv, convert_to_tensor=True, device='cpu')
-    jd_emb = embedder.encode(clean_jd, convert_to_tensor=True, device='cpu')
-    cosine_sim = float(util.cos_sim(cv_emb, jd_emb)[0][0])
-    
-    # 2. Ekstrak Keterampilan Kunci dari Job Description
-    target_skills = extract_skills_keybert(job_description)
-    
-    matched_skills = []
-    missing_skills = []
-    
-    # 3. Evaluasi Semantik & Leksikal Keterampilan pada CV
-    for skill in target_skills:
-        skill_pattern = r'\b' + re.escape(skill.lower()) + r'\b'
-        if re.search(skill_pattern, clean_cv.lower()):
-            matched_skills.append(skill)
-        else:
-            skill_emb = embedder.encode(skill, convert_to_tensor=True, device='cpu')
-            skill_sim = float(util.cos_sim(skill_emb, cv_emb)[0][0])
-            if skill_sim > 0.45:
-                matched_skills.append(skill)
-            else:
-                missing_skills.append(skill)
-                
-    # 4. Rasio Kecocokan Keterampilan
-    total_skills = len(matched_skills) + len(missing_skills)
-    skill_ratio = (len(matched_skills) / total_skills) if total_skills > 0 else 0.5
-    
-    # 5. Normalisasi Skor Akhir (60% Semantik Similarity + 40% Keterampilan)
-    normalized_sim = max(0.0, min(1.0, (cosine_sim - 0.2) / 0.6))
-    final_score = int(round(((normalized_sim * 0.6) + (skill_ratio * 0.4)) * 100))
-    final_score = max(8, min(97, final_score))
-    
-    # 6. Breakdown Kategori
-    tech_score = int(round(skill_ratio * 100))
-    exp_score = int(round(normalized_sim * 100))
-    ind_score = int(round(((tech_score + exp_score) / 2)))
-    
-    breakdown = {
-        "Technical Skills Match": max(10, min(100, tech_score)),
-        "Experience & Context Relevance": max(10, min(100, exp_score)),
-        "Industry Terminology Alignment": max(10, min(100, ind_score))
-    }
-    
-    # 7. Rekomendasi Karir & Penulisan CV
-    recommendations = []
-    if missing_skills:
-        top_missing = ", ".join(missing_skills[:3])
-        recommendations.append(f"Keahlian Prioritas: Pertimbangkan untuk menambahkan pengalaman riil atau portfolio proyek yang mencakup **{top_missing}**.")
-        recommendations.append(f"Penguatan Kualifikasi: Pelajari atau lampirkan sertifikasi terkait **{missing_skills[0]}** guna meningkatkan daya saing profil.")
-    else:
-        recommendations.append("Kesesuaian Kompetensi Unggul: Seluruh keterampilan kunci yang dibutuhkan dalam deskripsi lowongan telah teridentifikasi pada profil Anda.")
-        
-    recommendations.append(f"Optimalisasi Ringkasan Profil: Masukkan kata kunci teknis standar industri untuk posisi **{target_position}** pada bagian rangkuman pengalaman di awal CV.")
-    recommendations.append("Metrik Pencapaian Kuantitatif: Gunakan formula 'Accomplished [X] as measured by [Y], by doing [Z]' pada riwayat pekerjaan untuk memperjelas dampak kontribusi Anda.")
-    
-    return final_score, matched_skills, missing_skills, breakdown, recommendations
-
-
-# ==========================================
 # PRESET JOB SAMPLES FOR EASY TESTING
 # ==========================================
 PRESET_JOBS = {
     "Pilih Template Lowongan (Opsional)": "",
-    "Data Scientist": """Kami mencari Data Scientist yang memiliki pemahaman kuat dalam Python, Machine Learning, Scikit-Learn, dan Pandas.
-Tanggung jawab meliputi eksplorasi data (EDA), pengembangan model prediktif, evaluasi performa model, serta komunikasi temuan bisnis melalui visualisasi data interaktif.
-Kualifikasi:
-- Menguasai Python, SQL, dan manipulasi data besar.
-- Berpengalaman dengan algoritma Machine Learning (Regression, Classification, Clustering).
-- Pemahaman tentang Natural Language Processing (NLP) atau Deep Learning merupakan nilai tambah.
-- Mampu menyajikan insight teknis kepada pemangku kepentingan non-teknis.""",
+    "Junior Data Scientist / Data Science Intern": """Tentang Posisi Ini (Deskripsi Panjang)
+Kami mencari Junior Data Scientist / Data Science Intern yang memiliki pemahaman teknis kuat dalam membangun solusi Machine Learning dan Natural Language Processing (NLP) secara end-to-end. Dalam peran ini, kamu akan bertugas mengolah dataset dunia nyata—mulai dari data tabular keuangan, klinis, hingga teks media sosial—menjadi model prediktif yang siap produksi (production-ready).
+Kamu akan terlibat penuh dalam seluruh siklus hidup data: menangani masalah class imbalance, mencegah data leakage, melakukan feature engineering yang berdampak pada bisnis, hingga melakukan deployment model menjadi aplikasi interaktif.
+Tanggung Jawab Utama
+• Pengembangan Pipeline ML & Deep Learning: Merancang, melatih, dan mengevaluasi model klasifikasi, regresi, clustering, dan NLP untuk berbagai kasus penggunaan (seperti segmentasi pelanggan, risk scoring, dan analisis sentimen).
+• Rekayasa Fitur & Validasi Ketat: Melakukan feature engineering tingkat lanjut, menangani dataset dengan ketimpangan kelas (severe class imbalance), serta menerapkan validasi silang (stratified cross-validation) untuk memastikan model bebas dari overfitting dan data leakage.
+• Pengolahan Teks & NLP: Membangun sistem pemrosesan bahasa alami untuk data teks Bahasa Indonesia, termasuk klasifikasi sentimen dan pemeriksaan tata bahasa/ejaan kontekstual.
+• Deployment Aplikasi Data: Mengemas model Machine Learning ke dalam aplikasi web interaktif (seperti menggunakan Streamlit) agar dapat diakses dan digunakan secara real-time oleh pengguna maupun pemangku kepentingan.
+• Penerjemahan Wawasan Bisnis: Mengubah hasil klasterisasi dan probabilitas prediksi menjadi kerangka kerja segmentasi risiko serta strategi bisnis yang dapat ditindaklanjuti (actionable recommendations).
+Keahlian & Kualifikasi yang Dibutuhkan
+• Latar Belakang Akademik: Mahasiswa aktif atau lulusan S1 Teknik Informatika, Ilmu Komputer, atau bidang kuantitatif terkait dengan rekam jejak akademik yang kuat (IPK > 3.50 menjadi nilai tambah) dan pengalaman proyek data nyata.
+• Bahasa Pemrograman & Framework: Menguasai Python serta ekosistem Machine Learning dan Deep Learning seperti TensorFlow, PyTorch, dan Keras, serta mahir menggunakan SQL dan Microsoft Excel untuk manipulasi serta analisis data.
+• Keahlian Teknis Data Science: Pemahaman mendalam mengenai Supervised & Unsupervised Learning, Time Series, Exploratory Data Analysis (EDA), evaluasi metrik model (Accuracy, Recall, F1-Score, pengurangan error terhadap baseline), serta pemecahan masalah imbalanced dataset.
+• Pengalaman Deployment & Analisis Bisnis: Terbukti pernah membangun dan men-deploy aplikasi berbasis ML (misalnya dengan Streamlit) serta memiliki kemampuan Business Analysis untuk menyelaraskan solusi teknis dengan kebutuhan pengguna.
+• Soft Skills: Memiliki kemampuan berpikir kritis (critical thinking), pemecahan masalah (problem solving), kepemimpinan, kerja sama tim, dan komunikasi yang baik untuk mempresentasikan temuan data.""",
 
     "Machine Learning Engineer": """Dicari Machine Learning Engineer untuk mendesain, melatih, dan men-deploy model AI ke lingkungan produksi.
 Keahlian teknis yang dibutuhkan:
@@ -268,9 +182,9 @@ with st.sidebar:
     st.markdown("""
     - **Embedder**: `all-MiniLM-L6-v2`  
       *(Hugging Face Sentence-Transformers)*
-    - **Skill Extractor**: `KeyBERT`  
-      *(Unsupervised Semantic Keyword Extraction)*
-    - **Similarity Metric**: Cosine Similarity
+    - **Skill Extractor**: Hybrid (Industry Taxonomy + Bilingual Synonyms + KeyBERT)
+    - **Language Support**: Dwibahasa (Bahasa Indonesia & English)
+    - **Execution Device**: CPU (Stabil & Cepat)
     """)
     
     st.markdown("---")
@@ -298,13 +212,15 @@ with col_input_left:
     uploaded_file = st.file_uploader(
         "Pilih file resume dalam format PDF:",
         type=["pdf"],
-        help="Pastikan PDF memuat teks yang dapat dibaca (bukan hasil scan gambar mati)."
+        help="Pastikan PDF memuat teks digital yang dapat dibaca."
     )
     
+    # Auto-fill target position if preset is selected
+    initial_pos = selected_preset if selected_preset != "Pilih Template Lowongan (Opsional)" else "Junior Data Scientist"
     target_pos = st.text_input(
         "Posisi Pekerjaan yang Dituju:",
-        value=selected_preset if selected_preset != "Pilih Template Lowongan (Opsional)" else "Data Scientist",
-        placeholder="Contoh: Senior Data Scientist"
+        value=initial_pos,
+        placeholder="Contoh: Junior Data Scientist"
     )
 
 with col_input_right:
@@ -314,7 +230,7 @@ with col_input_right:
         "Tempelkan kualifikasi atau deskripsi pekerjaan lengkap:",
         value=default_jd,
         height=210,
-        placeholder="Tempelkan syarat pekerjaan, tanggung jawab, dan keahlian teknis yang dicari oleh perusahaan di sini..."
+        placeholder="Tempelkan syarat pekerjaan, tanggung jawab, dan keahlian teknis yang dicari di sini..."
     )
 
 st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
@@ -342,6 +258,9 @@ if start_analysis:
                     if extracted:
                         cv_text += extracted + "\n"
                         
+                # Normalisasi kerning text PDF
+                cv_text = clean_kerning(cv_text)
+                
                 if not cv_text.strip():
                     st.error("❌ Dokumen PDF tidak memuat teks yang dapat dibaca. Mohon gunakan resume berformat teks digital, bukan hasil foto/scan gambar.")
                 else:
@@ -368,22 +287,22 @@ if start_analysis:
                         st.markdown(f"""
                         <div class="metric-card">
                             <div class="metric-label">Kecocokan Teknis</div>
-                            <div class="metric-value">{breakdown['Technical Skills Match']}%</div>
+                            <div class="metric-value">{breakdown['technical']}%</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col3:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Relevansi Konteks</div>
-                            <div class="metric-value">{breakdown['Experience & Context Relevance']}%</div>
+                            <div class="metric-label">Relevansi Pengalaman</div>
+                            <div class="metric-value">{breakdown['experience']}%</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col4:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Keterampilan Ditemukan</div>
+                            <div class="metric-label">Keterampilan Terpenuhi</div>
                             <div class="metric-value">{len(matched)} / {len(matched) + len(missing)}</div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -396,16 +315,23 @@ if start_analysis:
                     with res_col_left:
                         st.subheader("📊 Analisis Dimensi Kompetensi")
                         
-                        # Plotly Horizontal Bar Chart
-                        categories = list(breakdown.keys())
-                        values = list(breakdown.values())
+                        categories = [
+                            "Kecocokan Keterampilan Teknis",
+                            "Relevansi Konteks Pengalaman",
+                            "Keselarasan Terminologi Industri"
+                        ]
+                        values = [
+                            breakdown['technical'],
+                            breakdown['experience'],
+                            breakdown['industry']
+                        ]
                         
                         fig = go.Figure(go.Bar(
                             x=values,
                             y=categories,
                             orientation='h',
                             marker=dict(
-                                color=['#3B82F6', '#6366F1', '#8B5CF6'],
+                                color=['#10B981', '#3B82F6', '#8B5CF6'],
                                 line=dict(color='#1E293B', width=1)
                             ),
                             text=[f"{v}%" for v in values],
@@ -424,7 +350,7 @@ if start_analysis:
                     with res_col_right:
                         st.subheader("🔍 Pemetaan Keterampilan")
                         
-                        st.markdown("**Keterampilan yang Cocok (Matched):**")
+                        st.markdown(f"**Keterampilan yang Cocok ({len(matched)} Terdeteksi):**")
                         if matched:
                             badges_html = "".join([f"<span class='badge-matched'>✓ {s}</span>" for s in matched])
                             st.markdown(badges_html, unsafe_allow_html=True)
@@ -433,7 +359,7 @@ if start_analysis:
                             
                         st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
                         
-                        st.markdown("**Keterampilan yang Belum Muncul (Identified Gaps):**")
+                        st.markdown(f"**Keterampilan Tambahan / Gap ({len(missing)} Teridentifikasi):**")
                         if missing:
                             missing_html = "".join([f"<span class='badge-missing'>+ {s}</span>" for s in missing])
                             st.markdown(missing_html, unsafe_allow_html=True)
