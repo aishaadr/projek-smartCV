@@ -1,5 +1,10 @@
 import io
+import os
 import re
+
+# Cegah konflik tokenizers multithreading pada macOS/Linux
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import streamlit as st
 import plotly.graph_objects as go
 from pypdf import PdfReader
@@ -120,8 +125,8 @@ st.markdown("""
 # ==========================================
 @st.cache_resource(show_spinner="Memuat model Hugging Face (Sentence-Transformers & KeyBERT)...")
 def load_ai_models():
-    """Memuat model NLP ke memori satu kali saja untuk kecepatan maksimal."""
-    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+    """Memuat model NLP ke memori satu kali saja dengan device='cpu' untuk stabilitas mutlak."""
+    embedder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
     kw_model = KeyBERT(model=embedder)
     return embedder, kw_model
 
@@ -152,8 +157,8 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str):
     clean_jd = clean_text(job_description)
     
     # 1. Hitung Semantic Cosine Similarity (Sentence Transformers)
-    cv_emb = embedder.encode(clean_cv, convert_to_tensor=True)
-    jd_emb = embedder.encode(clean_jd, convert_to_tensor=True)
+    cv_emb = embedder.encode(clean_cv, convert_to_tensor=True, device='cpu')
+    jd_emb = embedder.encode(clean_jd, convert_to_tensor=True, device='cpu')
     cosine_sim = float(util.cos_sim(cv_emb, jd_emb)[0][0])
     
     # 2. Ekstrak Keterampilan Kunci dari Job Description
@@ -168,7 +173,7 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str):
         if re.search(skill_pattern, clean_cv.lower()):
             matched_skills.append(skill)
         else:
-            skill_emb = embedder.encode(skill, convert_to_tensor=True)
+            skill_emb = embedder.encode(skill, convert_to_tensor=True, device='cpu')
             skill_sim = float(util.cos_sim(skill_emb, cv_emb)[0][0])
             if skill_sim > 0.45:
                 matched_skills.append(skill)

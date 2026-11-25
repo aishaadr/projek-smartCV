@@ -1,11 +1,16 @@
+import os
 import re
 from typing import List, Tuple, Dict
+
+# Cegah konflik multithreading tokenizers pada macOS/Linux
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from sentence_transformers import SentenceTransformer, util
 from keybert import KeyBERT
 
-# Load pre-trained models dari Hugging Face (Otomatis ter-download saat pertama jalan)
-print("Loading Hugging Face models...")
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+# Load pre-trained models dari Hugging Face dengan device='cpu' untuk stabilitas maksimal di macOS/Windows/Linux
+print("Loading Hugging Face models on CPU...")
+embedder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 kw_model = KeyBERT(model=embedder)
 print("Hugging Face models ready!")
 
@@ -19,7 +24,7 @@ def clean_text(text: str) -> str:
 def extract_skills_keybert(job_description: str) -> List[str]:
     """
     Mengekstrak kata kunci keahlian secara otomatis dari Job Description
-    menggunakan KeyBERT (Tanpa kamus manual!).
+    menggunakan KeyBERT (Tanpa kamus manual).
     """
     keywords = kw_model.extract_keywords(
         job_description, 
@@ -37,8 +42,8 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     clean_jd = clean_text(job_description)
     
     # 1. Hitung Semantic Cosine Similarity antara CV dan Job Description
-    cv_emb = embedder.encode(clean_cv, convert_to_tensor=True)
-    jd_emb = embedder.encode(clean_jd, convert_to_tensor=True)
+    cv_emb = embedder.encode(clean_cv, convert_to_tensor=True, device='cpu')
+    jd_emb = embedder.encode(clean_jd, convert_to_tensor=True, device='cpu')
     cosine_sim = float(util.cos_sim(cv_emb, jd_emb)[0][0])
     
     # 2. Ekstrak Keterampilan dari Job Description
@@ -54,7 +59,7 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
             matched_skills.append(skill)
         else:
             # Semantic check: jika embedding skill sangat dekat dengan kalimat di CV
-            skill_emb = embedder.encode(skill, convert_to_tensor=True)
+            skill_emb = embedder.encode(skill, convert_to_tensor=True, device='cpu')
             skill_sim = float(util.cos_sim(skill_emb, cv_emb)[0][0])
             if skill_sim > 0.45:
                 matched_skills.append(skill)
@@ -66,10 +71,9 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     skill_ratio = (len(matched_skills) / total_skills) if total_skills > 0 else 0.5
     
     # 5. Skor Akhir (Gabungan 60% Semantic Similarity + 40% Skill Match Ratio)
-    # Cosine sim biasanya berkisar 0.3 s/d 0.85 untuk teks resume, kita normalkan
     normalized_sim = max(0.0, min(1.0, (cosine_sim - 0.2) / 0.6))
     final_score = int(round(((normalized_sim * 0.6) + (skill_ratio * 0.4)) * 100))
-    final_score = max(5, min(98, final_score)) # range wajar 5% - 98%
+    final_score = max(5, min(98, final_score))
     
     # 6. Hitung Breakdown Kategori (Technical, Experience, Industry)
     tech_score = int(round(skill_ratio * 100))
@@ -92,4 +96,3 @@ def evaluate_cv(cv_text: str, job_description: str, target_position: str) -> Tup
     
     recommendations.append(f"Gunakan kata kunci dan istilah teknis standar industri untuk posisi '{target_position}' pada ringkasan profilmu.")
     return final_score, matched_skills, missing_skills, breakdown, recommendations
-
