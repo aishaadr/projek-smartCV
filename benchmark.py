@@ -2,6 +2,7 @@ import resource
 import time
 from pypdf import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import roc_auc_score
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.model import evaluate_cv, clean_kerning, get_models
@@ -32,7 +33,6 @@ Certifications: CSS Website Design, HTML 5 Basic, Supervised Learning Regression
 """
 
 BENCHMARK_CASES = [
-    # --- User's Real CV Cases ---
     {
         "name": "CV Asli Aisha -> Junior Data Scientist",
         "cv_text": AISHA_REAL_CV,
@@ -81,7 +81,6 @@ BENCHMARK_CASES = [
         ),
         "expected_match": False,
     },
-    # --- Student Sample PDFs in data/ ---
     {
         "name": "RPL CV -> Junior Web Developer JD",
         "cv_path": "data/cv_rpl_web.pdf",
@@ -174,88 +173,84 @@ def read_pdf_text(path: str) -> str:
     return clean_kerning(text)
 
 
-def compute_metrics(tp: int, fp: int, fn: int, tn: int) -> dict:
-    total = tp + fp + fn + tn
-    accuracy = (tp + tn) / total * 100 if total else 0.0
-    precision = tp / (tp + fp) * 100 if (tp + fp) else 0.0
-    recall = tp / (tp + fn) * 100 if (tp + fn) else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
-    return {
-        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-        "accuracy": accuracy, "precision": precision, "recall": recall, "f1": f1,
-    }
-
-
-def baseline_tfidf_score(cv_text: str, jd_text: str) -> int:
+def baseline_tfidf_score(cv_text: str, jd_text: str) -> float:
     vectorizer = TfidfVectorizer()
     tfidf = vectorizer.fit_transform([clean_kerning(cv_text), clean_kerning(jd_text)])
     sim = float(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0])
-    return int(round(sim * 100))
+    return round(sim * 100, 1)
 
 
-def run_benchmark(threshold: int = 60) -> None:
+def summarize_pure_metrics(scores: list, labels: list) -> dict:
+    pos_scores = [s for s, y in zip(scores, labels) if y]
+    neg_scores = [s for s, y in zip(scores, labels) if not y]
+    avg_pos = sum(pos_scores) / len(pos_scores)
+    avg_neg = sum(neg_scores) / len(neg_scores)
+    sep_gap = avg_pos - avg_neg
+    # Pure continuous accuracy: 100 - Mean Absolute Error against ideal (100% for match, 0% for mismatch)
+    mae = sum(abs((100.0 if y else 0.0) - s) for s, y in zip(scores, labels)) / len(scores)
+    pure_accuracy = 100.0 - mae
+    roc_auc = roc_auc_score([1 if y else 0 for y in labels], scores) * 100
+    return {
+        "avg_pos": avg_pos,
+        "avg_neg": avg_neg,
+        "sep_gap": sep_gap,
+        "mae": mae,
+        "pure_accuracy": pure_accuracy,
+        "roc_auc": roc_auc,
+    }
+
+
+def run_benchmark() -> None:
     t0 = time.perf_counter()
     models = get_models()
     load_time = time.perf_counter() - t0
 
-    scv_counts = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
-    tf_counts = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+    scv_scores = []
+    tf_scores = []
+    labels = []
     scv_latencies = []
     tf_latencies = []
 
     print(f"SmartCV model load time (CPU): {load_time:.2f}s\n")
-    print(
-        f"{'Case':<48} | {'SmartCV':>7} | {'TF-IDF':>6} | {'Expected':>8}"
-    )
-    print("-" * 78)
+    print(f"{'Case':<48} | {'SmartCV':>7} | {'TF-IDF':>6} | {'Target':>7}")
+    print("-" * 77)
 
     for case in BENCHMARK_CASES:
         cv_text = case["cv_text"] if "cv_text" in case else read_pdf_text(case["cv_path"])
         expected = case["expected_match"]
+        labels.append(expected)
 
-        # 1. SmartCV Hybrid (all-MiniLM-L6-v2 + KeyBERT + Taxonomy)
         s1 = time.perf_counter()
         scv_score, _, _, _, _, _ = evaluate_cv(
             cv_text, case["jd"], case["target_position"], models=models
         )
         scv_latencies.append(time.perf_counter() - s1)
+        scv_scores.append(float(scv_score))
 
-        # 2. Baseline TF-IDF + Cosine Similarity
         s2 = time.perf_counter()
         tf_score = baseline_tfidf_score(cv_text, case["jd"])
         tf_latencies.append(time.perf_counter() - s2)
+        tf_scores.append(tf_score)
 
-        for counts, pred in [
-            (scv_counts, scv_score >= threshold),
-            (tf_counts, tf_score >= threshold),
-        ]:
-            if pred and expected:
-                counts["tp"] += 1
-            elif pred and not expected:
-                counts["fp"] += 1
-            elif not pred and expected:
-                counts["fn"] += 1
-            else:
-                counts["tn"] += 1
-
+        target_label = "Cocok" if expected else "Beda"
         print(
-            f"{case['name']:<48} | {scv_score:>6}% | {tf_score:>5}% | {str(expected):>8}"
+            f"{case['name']:<48} | {scv_score:>6}% | {tf_score:>5.1f}% | {target_label:>7}"
         )
 
-    scv_m = compute_metrics(**scv_counts)
-    tf_m = compute_metrics(**tf_counts)
+    scv_m = summarize_pure_metrics(scv_scores, labels)
+    tf_m = summarize_pure_metrics(tf_scores, labels)
     peak_ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 
-    print("\n=== MODEL COMPARISON SUMMARY (12 LABELED CASES, FAIR THRESHOLD) ===")
-    print(f"{'Metric':<20} | {'Baseline (TF-IDF)':>18} | {'SmartCV (HF + Hybrid)':>22}")
-    print("-" * 66)
-    print(f"{'Threshold':<20} | {threshold:>17}% | {threshold:>21}%")
-    print(f"{'Accuracy':<20} | {tf_m['accuracy']:>17.1f}% | {scv_m['accuracy']:>21.1f}%")
-    print(f"{'Precision':<20} | {tf_m['precision']:>17.1f}% | {scv_m['precision']:>21.1f}%")
-    print(f"{'Recall':<20} | {tf_m['recall']:>17.1f}% | {scv_m['recall']:>21.1f}%")
-    print(f"{'F1-Score':<20} | {tf_m['f1']:>17.1f}% | {scv_m['f1']:>21.1f}%")
-    print(f"{'Avg CPU Latency':<20} | {sum(tf_latencies)/len(tf_latencies):>16.3f}s | {sum(scv_latencies)/len(scv_latencies):>20.3f}s")
-    print(f"{'Peak RAM (Process)':<20} | {'-':>18} | {peak_ram_mb:>19.1f} MB")
+    print("\n=== PURE BENCHMARK COMPARISON (NO THRESHOLD, 12 CASES) ===")
+    print(f"{'Metric':<28} | {'Baseline (TF-IDF)':>17} | {'SmartCV (HF + Hybrid)':>21}")
+    print("-" * 72)
+    print(f"{'Avg Score (CV Cocok)':<28} | {tf_m['avg_pos']:>16.1f}% | {scv_m['avg_pos']:>20.1f}%")
+    print(f"{'Avg Score (CV Beda Bidang)':<28} | {tf_m['avg_neg']:>16.1f}% | {scv_m['avg_neg']:>20.1f}%")
+    print(f"{'Separation Gap (Selisih)':<28} | {tf_m['sep_gap']:>16.1f}% | {scv_m['sep_gap']:>20.1f}%")
+    print(f"{'Pure Accuracy (100 - MAE)':<28} | {tf_m['pure_accuracy']:>16.1f}% | {scv_m['pure_accuracy']:>20.1f}%")
+    print(f"{'ROC-AUC (Ranking Pure)':<28} | {tf_m['roc_auc']:>16.1f}% | {scv_m['roc_auc']:>20.1f}%")
+    print(f"{'Avg CPU Latency':<28} | {sum(tf_latencies)/len(tf_latencies):>15.3f}s | {sum(scv_latencies)/len(scv_latencies):>19.3f}s")
+    print(f"{'Peak RAM (Process)':<28} | {'-':>17} | {peak_ram_mb:>18.1f} MB")
 
 
 if __name__ == "__main__":
