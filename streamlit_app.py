@@ -2,15 +2,14 @@ import io
 import os
 import re
 
-# Cegah konflik tokenizers multithreading pada macOS/Linux
+# Prevent tokenizer multithreading deadlocks on macOS/Linux
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import streamlit as st
 import plotly.graph_objects as go
 from pypdf import PdfReader
 
-# Import model & engine dari app.model
-from app.model import evaluate_cv, clean_kerning
+from app.model import evaluate_cv, clean_kerning, get_models
 
 # ==========================================
 # PAGE CONFIGURATION & THEME
@@ -19,8 +18,13 @@ st.set_page_config(
     page_title="SmartCV Analytics — AI Resume & Job Matcher",
     page_icon="🎯",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
+
+# Cache model loading across Streamlit reruns
+@st.cache_resource(show_spinner="Memuat model NLP (all-MiniLM-L6-v2 & KeyBERT)...")
+def load_cached_models():
+    return get_models()
 
 # Custom Clean & Human-Crafted CSS
 st.markdown("""
@@ -138,46 +142,59 @@ st.markdown("""
 
 
 # ==========================================
-# PRESET JOB SAMPLES FOR EASY TESTING
+# PRESET JOB SAMPLES (SMA/SMK & ENTRY-LEVEL)
 # ==========================================
 PRESET_JOBS = {
     "Pilih Template Lowongan (Opsional)": "",
-    "Junior Data Scientist / Data Science Intern": """Tentang Posisi Ini (Deskripsi Panjang)
-Kami mencari Junior Data Scientist / Data Science Intern yang memiliki pemahaman teknis kuat dalam membangun solusi Machine Learning dan Natural Language Processing (NLP) secara end-to-end. Dalam peran ini, kamu akan bertugas mengolah dataset dunia nyata—mulai dari data tabular keuangan, klinis, hingga teks media sosial—menjadi model prediktif yang siap produksi (production-ready).
-Kamu akan terlibat penuh dalam seluruh siklus hidup data: menangani masalah class imbalance, mencegah data leakage, melakukan feature engineering yang berdampak pada bisnis, hingga melakukan deployment model menjadi aplikasi interaktif.
-Tanggung Jawab Utama
-• Pengembangan Pipeline ML & Deep Learning: Merancang, melatih, dan mengevaluasi model klasifikasi, regresi, clustering, dan NLP untuk berbagai kasus penggunaan (seperti segmentasi pelanggan, risk scoring, dan analisis sentimen).
-• Rekayasa Fitur & Validasi Ketat: Melakukan feature engineering tingkat lanjut, menangani dataset dengan ketimpangan kelas (severe class imbalance), serta menerapkan validasi silang (stratified cross-validation) untuk memastikan model bebas dari overfitting dan data leakage.
-• Pengolahan Teks & NLP: Membangun sistem pemrosesan bahasa alami untuk data teks Bahasa Indonesia, termasuk klasifikasi sentimen dan pemeriksaan tata bahasa/ejaan kontekstual.
-• Deployment Aplikasi Data: Mengemas model Machine Learning ke dalam aplikasi web interaktif (seperti menggunakan Streamlit) agar dapat diakses dan digunakan secara real-time oleh pengguna maupun pemangku kepentingan.
-• Penerjemahan Wawasan Bisnis: Mengubah hasil klasterisasi dan probabilitas prediksi menjadi kerangka kerja segmentasi risiko serta strategi bisnis yang dapat ditindaklanjuti (actionable recommendations).
-Keahlian & Kualifikasi yang Dibutuhkan
-• Latar Belakang Akademik: Mahasiswa aktif atau lulusan S1 Teknik Informatika, Ilmu Komputer, atau bidang kuantitatif terkait dengan rekam jejak akademik yang kuat (IPK > 3.50 menjadi nilai tambah) dan pengalaman proyek data nyata.
-• Bahasa Pemrograman & Framework: Menguasai Python serta ekosistem Machine Learning dan Deep Learning seperti TensorFlow, PyTorch, dan Keras, serta mahir menggunakan SQL dan Microsoft Excel untuk manipulasi serta analisis data.
-• Keahlian Teknis Data Science: Pemahaman mendalam mengenai Supervised & Unsupervised Learning, Time Series, Exploratory Data Analysis (EDA), evaluasi metrik model (Accuracy, Recall, F1-Score, pengurangan error terhadap baseline), serta pemecahan masalah imbalanced dataset.
-• Pengalaman Deployment & Analisis Bisnis: Terbukti pernah membangun dan men-deploy aplikasi berbasis ML (misalnya dengan Streamlit) serta memiliki kemampuan Business Analysis untuk menyelaraskan solusi teknis dengan kebutuhan pengguna.
-• Soft Skills: Memiliki kemampuan berpikir kritis (critical thinking), pemecahan masalah (problem solving), kepemimpinan, kerja sama tim, dan komunikasi yang baik untuk mempresentasikan temuan data.""",
-
-    "Machine Learning Engineer": """Dicari Machine Learning Engineer untuk mendesain, melatih, dan men-deploy model AI ke lingkungan produksi.
-Keahlian teknis yang dibutuhkan:
-- Python, PyTorch atau TensorFlow, Docker, dan CI/CD pipeline.
-- Pengalaman membangun REST API menggunakan FastAPI atau Flask untuk inference model.
-- Memahami konsep MLOps, model monitoring, dan data drift.
-- Pengalaman dengan Hugging Face Transformers dan arsitektur LLM.""",
-
-    "Full-Stack Web Developer": """Mencari Full-Stack Developer dengan fokus pada arsitektur modern web application.
+    "Junior Web Developer (RPL)": """Kami mencari Junior Web Developer / lulusan SMK RPL yang siap membangun dan memelihara website modern.
+Tanggung Jawab Utama:
+- Mengembangkan tampilan antarmuka web responsif menggunakan HTML, CSS, JavaScript, dan Tailwind CSS atau Bootstrap.
+- Membangun fitur backend sederhana menggunakan PHP (Laravel / CodeIgniter) atau Node.js dan database MySQL.
+- Berkolaborasi menggunakan Git dan GitHub serta mengintegrasikan REST API.
 Kualifikasi:
-- Mahir dalam JavaScript/TypeScript, React.js atau Vue.js untuk sisi frontend.
-- Menguasai Node.js, Python, atau PHP (Laravel) untuk sisi backend dan RESTful API.
-- Berpengalaman dalam desain database relasional (PostgreSQL/MySQL) dan query optimization.
-- Memahami version control Git, unit testing, dan cloud deployment.""",
+- Lulusan SMK RPL atau mahasiswa/fresh graduate bidang informatika.
+- Menguasai HTML, CSS, JavaScript, PHP, MySQL, dan Git.
+- Memiliki kemampuan problem solving, teamwork, dan komunikasi yang baik.""",
 
-    "UI/UX & Product Designer": """Kami membutuhkan UI/UX Designer yang berfokus pada user-centered design, pembuatan prototype interaktif, dan usability testing.
-Kualifikasi utama:
-- Sangat mahir menggunakan Figma untuk wireframing, high-fidelity design, dan design system.
-- Memiliki portfolio desain web dan mobile yang mengedepankan kemudahan navigasi dan estetika visual.
-- Mampu melakukan user research, journey mapping, dan interview pengguna.
-- Berkolaborasi erat dengan tim software engineering untuk memastikan kepatuhan implementasi desain."""
+    "IT Support / Teknisi Jaringan (TKJ)": """Dibutuhkan IT Support / Network Technician (lulusan SMK TKJ dipersilakan melamar) untuk mendukung operasional infrastruktur IT.
+Tanggung Jawab Utama:
+- Melakukan instalasi jaringan komputer LAN/WAN, crimping kabel, serta konfigurasi router MikroTik dan Cisco.
+- Menangani hardware troubleshooting, software troubleshooting, instalasi OS Windows Server maupun Linux.
+- Memberikan layanan helpdesk melalui ticketing system dan menjaga keamanan jaringan (Firewall).
+Kualifikasi:
+- Lulusan SMK TKJ atau sederajat.
+- Memahami dasar Networking, TCP/IP, MikroTik, Hardware Troubleshooting, dan Linux.
+- Memiliki komunikasi yang baik, problem solving, dan manajemen waktu.""",
+
+    "UI/UX & Desain Grafis (DKV)": """Kami membutuhkan Junior UI/UX Designer & Graphic Designer (lulusan SMK DKV / Multimedia) untuk merancang tampilan aplikasi dan materi visual.
+Tanggung Jawab Utama:
+- Membuat wireframing, prototyping, user flow, dan UI Design interaktif menggunakan Figma.
+- Mendesain aset visual, poster, dan konten digital menggunakan Adobe Photoshop, Adobe Illustrator, Canva, atau CorelDraw.
+- Melakukan UX Research sederhana dan usability testing bersama tim produk.
+Kualifikasi:
+- Menguasai Figma, Adobe Photoshop, Adobe Illustrator, dan prinsip Typography.
+- Memahami Design System, Wireframing, dan Prototyping.
+- Kreatif, komunikatif, dan mampu bekerja sama dalam tim.""",
+
+    "Admin Data & Operasional": """Dicari Staff Admin Data untuk mengelola input, pembersihan, dan pelaporan data operasional harian.
+Tanggung Jawab Utama:
+- Melakukan data entry dan data cleaning secara akurat menggunakan Microsoft Excel, Google Sheets, dan Microsoft Word.
+- Membuat laporan mingguan menggunakan Pivot Table, VLOOKUP, serta dashboard sederhana di Google Data Studio.
+- Mengelola basis data dasar menggunakan SQL.
+Kualifikasi:
+- Lulusan SMA/SMK sederajat dengan ketelitian tinggi.
+- Mahir menggunakan Microsoft Excel (Pivot Table, VLOOKUP), Microsoft Word, dan Google Sheets.
+- Memiliki kemampuan critical thinking, time management, dan reporting yang rapi.""",
+
+    "Junior Data Scientist": """Kami mencari Junior Data Scientist yang memiliki pemahaman kuat dalam pengembangan solusi Machine Learning dan Natural Language Processing (NLP) secara end-to-end.
+Tanggung Jawab Utama:
+- Mengembangkan pipeline Machine Learning dan Deep Learning untuk klasifikasi, regresi, clustering, dan sentiment analysis.
+- Melakukan Exploratory Data Analysis (EDA), feature engineering, menangani class imbalance, serta stratified cross-validation untuk mencegah data leakage.
+- Mengemas model prediktif ke dalam aplikasi interaktif berbasis Streamlit.
+Kualifikasi:
+- Menguasai Python, TensorFlow, PyTorch, Keras, SQL, dan Microsoft Excel.
+- Memahami Supervised Learning, Unsupervised Learning, Time Series, dan Business Analysis.
+- Memiliki kemampuan critical thinking, problem solving, communication skills, dan leadership.""",
 }
 
 
@@ -190,7 +207,7 @@ with st.sidebar:
     
     selected_preset = st.selectbox(
         "Gunakan Contoh Posisi Pekerjaan:",
-        options=list(PRESET_JOBS.keys())
+        options=list(PRESET_JOBS.keys()),
     )
     
     st.markdown("---")
@@ -199,7 +216,6 @@ with st.sidebar:
     - **Embedder**: `all-MiniLM-L6-v2`  
       *(Hugging Face Sentence-Transformers)*
     - **Skill Extractor**: Hybrid (Industry Taxonomy + Bilingual Synonyms + KeyBERT)
-    - **Evaluation Metrics**: Confusion Matrix, Accuracy, Precision, Recall, F1-Score
     - **Language Support**: Dwibahasa (Bahasa Indonesia & English)
     - **Execution Device**: CPU (Stabil & Responsif)
     """)
@@ -218,7 +234,7 @@ with st.sidebar:
 st.markdown("""
 <div class="hero-container">
     <div class="hero-title">SmartCV Analytics</div>
-    <p class="hero-subtitle">Platform analitik pencocokan resume terhadap kualifikasi pekerjaan berbasis Semantic NLP, Matriks Evaluasi & Machine Learning.</p>
+    <p class="hero-subtitle">Platform analitik pencocokan resume terhadap kualifikasi pekerjaan berbasis Semantic NLP & Machine Learning.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -229,14 +245,14 @@ with col_input_left:
     uploaded_file = st.file_uploader(
         "Pilih file resume dalam format PDF:",
         type=["pdf"],
-        help="Pastikan PDF memuat teks digital yang dapat dibaca."
+        help="Pastikan PDF memuat teks digital yang dapat dibaca.",
     )
     
-    initial_pos = selected_preset if selected_preset != "Pilih Template Lowongan (Opsional)" else "Junior Data Scientist"
+    initial_pos = selected_preset if selected_preset != "Pilih Template Lowongan (Opsional)" else "Junior Web Developer"
     target_pos = st.text_input(
         "Posisi Pekerjaan yang Dituju:",
         value=initial_pos,
-        placeholder="Contoh: Junior Data Scientist"
+        placeholder="Contoh: Junior Web Developer",
     )
 
 with col_input_right:
@@ -246,12 +262,11 @@ with col_input_right:
         "Tempelkan kualifikasi atau deskripsi pekerjaan lengkap:",
         value=default_jd,
         height=210,
-        placeholder="Tempelkan syarat pekerjaan, tanggung jawab, dan keahlian teknis yang dicari di sini..."
+        placeholder="Tempelkan syarat pekerjaan, tanggung jawab, dan keahlian teknis yang dicari di sini...",
     )
 
 st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
 
-# Analyze Action Button
 btn_col1, btn_col2, btn_col3 = st.columns([1, 2, 1])
 with btn_col2:
     start_analysis = st.button("🚀 Mulai Analisis Kesesuaian Resume", use_container_width=True, type="primary")
@@ -264,9 +279,9 @@ if start_analysis:
     elif not target_pos.strip():
         st.error("⚠️ Mohon cantumkan posisi pekerjaan yang dituju.")
     else:
+        models = load_cached_models()
         with st.spinner("Mengekstrak teks resume dan menjalankan analisis semantik..."):
             try:
-                # 1. Extract text from PDF
                 pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
                 cv_text = ""
                 for page in pdf_reader.pages:
@@ -279,142 +294,55 @@ if start_analysis:
                 if not cv_text.strip():
                     st.error("❌ Dokumen PDF tidak memuat teks yang dapat dibaca. Mohon gunakan resume berformat teks digital, bukan hasil foto/scan gambar.")
                 else:
-                    # 2. Evaluate CV
                     score, matched, missing, breakdown, recommendations, metrics = evaluate_cv(
-                        cv_text, job_desc, target_pos
+                        cv_text, job_desc, target_pos, models=models
                     )
                     
-                    st.success("✅ Analisis Resume & Matriks Evaluasi Berhasil Diselesaikan!")
+                    st.success("✅ Analisis Resume Berhasil Diselesaikan!")
                     
-                    # 3. KPI Metrics Dashboard
+                    # Honest recruitment metrics in the 4 KPI cards
                     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                     
                     with m_col1:
                         color_score = "#10B981" if score >= 75 else ("#F59E0B" if score >= 50 else "#EF4444")
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Tingkat Kecocokan (Overall)</div>
+                            <div class="metric-label">Skor Kecocokan</div>
                             <div class="metric-value" style="color: {color_score};">{score}%</div>
-                            <div class="metric-sub">Skor Sintesis Akhir</div>
+                            <div class="metric-sub">Keselarasan Keseluruhan</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col2:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Akurasi Evaluasi (Accuracy)</div>
-                            <div class="metric-value" style="color: #3B82F6;">{metrics['accuracy']}%</div>
-                            <div class="metric-sub">Tingkat Ketepatan Klasifikasi</div>
+                            <div class="metric-label">Skill Wajib Terpenuhi</div>
+                            <div class="metric-value" style="color: #10B981;">{metrics['matched_count']} / {metrics['total_required']}</div>
+                            <div class="metric-sub">Kualifikasi Inti Lowongan</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col3:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Cakupan Kualifikasi (Recall)</div>
-                            <div class="metric-value" style="color: #10B981;">{metrics['recall']}%</div>
-                            <div class="metric-sub">{len(matched)} dari {len(matched) + len(missing)} Syarat Terpenuhi</div>
+                            <div class="metric-label">Kemiripan Konteks</div>
+                            <div class="metric-value" style="color: #3B82F6;">{metrics['cosine_similarity']}%</div>
+                            <div class="metric-sub">Semantic Cosine Similarity</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     with m_col4:
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-label">Harmonic Score (F1-Score)</div>
-                            <div class="metric-value" style="color: #8B5CF6;">{metrics['f1_score']}%</div>
-                            <div class="metric-sub">Keseimbangan Precision & Recall</div>
+                            <div class="metric-label">Skill Nilai Plus</div>
+                            <div class="metric-value" style="color: #8B5CF6;">{metrics['surplus_count']}</div>
+                            <div class="metric-sub">Keahlian Ekstra Kandidat</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
                     
-                    # 4. SECTION BARU: MATRIKS EVALUASI & CONFUSION MATRIX
-                    st.subheader("🎯 Matriks Evaluasi & Kinerja Klasifikasi Model")
-                    st.caption("Matriks penilaian formal standar Data Science untuk mengukur tingkat kecocokan profil terhadap kualifikasi pekerjaan.")
-                    
-                    mat_col1, mat_col2 = st.columns([1, 1], gap="large")
-                    
-                    with mat_col1:
-                        st.markdown("##### Visualisasi Confusion Matrix (2x2)")
-                        
-                        # Plotly Confusion Matrix Heatmap
-                        z_values = [
-                            [metrics['tp'], metrics['fn']],
-                            [metrics['fp'], metrics['tn']]
-                        ]
-                        x_labels = ["Terdeteksi di CV (Positive)", "Tidak Ada di CV (Negative)"]
-                        y_labels = ["Dibutuhkan JD (Actual +)", "Bukan Inti JD (Actual -)"]
-                        
-                        annotations = [
-                            [f"<b>True Positive (TP)</b><br>{metrics['tp']} Kompetensi Cocok", f"<b>False Negative (FN)</b><br>{metrics['fn']} Gap Kualifikasi"],
-                            [f"<b>False Positive (FP)</b><br>{metrics['fp']} Keahlian Ekstra", f"<b>True Negative (TN)</b><br>{metrics['tn']} Non-Target"]
-                        ]
-                        
-                        fig_cm = go.Figure(data=go.Heatmap(
-                            z=z_values,
-                            x=x_labels,
-                            y=y_labels,
-                            colorscale=[[0, '#F1F5F9'], [0.5, '#93C5FD'], [1, '#2563EB']],
-                            showscale=False
-                        ))
-                        
-                        # Add text labels inside heatmap cells
-                        for i in range(2):
-                            for j in range(2):
-                                fig_cm.add_annotation(
-                                    x=x_labels[j],
-                                    y=y_labels[i],
-                                    text=annotations[i][j],
-                                    showarrow=False,
-                                    font=dict(size=13, color="#0F172A" if z_values[i][j] < (max(map(max, z_values)) * 0.7) else "#FFFFFF")
-                                )
-                                
-                        fig_cm.update_layout(
-                            height=270,
-                            margin=dict(l=20, r=20, t=20, b=20),
-                            yaxis=dict(autorange="reversed"),
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)"
-                        )
-                        st.plotly_chart(fig_cm, use_container_width=True)
-                        
-                    with mat_col2:
-                        st.markdown("##### Rincian Parameter Kuantitatif")
-                        
-                        metric_df_html = f"""
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.92rem; margin-top: 10px;">
-                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
-                                <td style="color: #64748B;">Akurasi Keseluruhan (Accuracy)</td>
-                                <td style="text-align: right; font-weight: 700; color: #0F172A;">{metrics['accuracy']}%</td>
-                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">(TP + TN) / Total</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
-                                <td style="color: #64748B;">Cakupan Lowongan (Recall / Sensitivity)</td>
-                                <td style="text-align: right; font-weight: 700; color: #10B981;">{metrics['recall']}%</td>
-                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">TP / (TP + FN)</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
-                                <td style="color: #64748B;">Presisi Kualifikasi (Precision)</td>
-                                <td style="text-align: right; font-weight: 700; color: #3B82F6;">{metrics['precision']}%</td>
-                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">TP / (TP + FP)</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #E2E8F0; height: 38px;">
-                                <td style="color: #64748B;">F1-Score Harmonik</td>
-                                <td style="text-align: right; font-weight: 700; color: #8B5CF6;">{metrics['f1_score']}%</td>
-                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">Harmonic Mean</td>
-                            </tr>
-                            <tr style="height: 38px;">
-                                <td style="color: #64748B;">Kemiripan Konteks (Cosine Sim)</td>
-                                <td style="text-align: right; font-weight: 700; color: #0F172A;">{metrics['cosine_similarity']}%</td>
-                                <td style="color: #94A3B8; font-size: 0.8rem; padding-left: 10px;">Sentence Embedding</td>
-                            </tr>
-                        </table>
-                        """
-                        st.markdown(metric_df_html, unsafe_allow_html=True)
-                        
-                    st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
-                    
-                    # 5. Visual Breakdown Chart & Skills Comparison
+                    # Visual Breakdown Chart & Skills Comparison
                     res_col_left, res_col_right = st.columns([1, 1], gap="large")
                     
                     with res_col_left:
@@ -423,24 +351,24 @@ if start_analysis:
                         categories = [
                             "Kecocokan Keterampilan Teknis",
                             "Relevansi Konteks Pengalaman",
-                            "Keselarasan Terminologi Industri"
+                            "Keselarasan Terminologi Industri",
                         ]
                         values = [
-                            breakdown['technical'],
-                            breakdown['experience'],
-                            breakdown['industry']
+                            breakdown["technical"],
+                            breakdown["experience"],
+                            breakdown["industry"],
                         ]
                         
                         fig = go.Figure(go.Bar(
                             x=values,
                             y=categories,
-                            orientation='h',
+                            orientation="h",
                             marker=dict(
-                                color=['#10B981', '#3B82F6', '#8B5CF6'],
-                                line=dict(color='#1E293B', width=1)
+                                color=["#10B981", "#3B82F6", "#8B5CF6"],
+                                line=dict(color="#1E293B", width=1),
                             ),
                             text=[f"{v}%" for v in values],
-                            textposition='auto',
+                            textposition="auto",
                         ))
                         fig.update_layout(
                             xaxis=dict(range=[0, 100], title="Persentase Pemenuhan (%)"),
@@ -448,14 +376,14 @@ if start_analysis:
                             margin=dict(l=20, r=20, t=20, b=20),
                             height=240,
                             paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)"
+                            plot_bgcolor="rgba(0,0,0,0)",
                         )
                         st.plotly_chart(fig, use_container_width=True)
                         
                     with res_col_right:
                         st.subheader("🔍 Pemetaan Keterampilan")
                         
-                        st.markdown(f"**Keterampilan Cocok / True Positive ({len(matched)} Terdeteksi):**")
+                        st.markdown(f"**Keterampilan Wajib Terpenuhi ({len(matched)} Terdeteksi):**")
                         if matched:
                             badges_html = "".join([f"<span class='badge-matched'>✓ {s}</span>" for s in matched])
                             st.markdown(badges_html, unsafe_allow_html=True)
@@ -464,9 +392,9 @@ if start_analysis:
                             
                         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
                         
-                        st.markdown(f"**Keterampilan Tambahan / Nilai Plus ({len(metrics['surplus_skills'])} Teridentifikasi):**")
-                        if metrics['surplus_skills']:
-                            surplus_html = "".join([f"<span class='badge-surplus'>★ {s}</span>" for s in metrics['surplus_skills'][:8]])
+                        st.markdown(f"**Skill Nilai Plus / Tambahan ({len(metrics['surplus_skills'])} Teridentifikasi):**")
+                        if metrics["surplus_skills"]:
+                            surplus_html = "".join([f"<span class='badge-surplus'>★ {s}</span>" for s in metrics["surplus_skills"][:8]])
                             st.markdown(surplus_html, unsafe_allow_html=True)
                             
                         if missing:
@@ -477,16 +405,16 @@ if start_analysis:
 
                     st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
                     
-                    # 6. Tailored Recommendations
+                    # Tailored Recommendations (convert **bold** markdown to HTML <strong>)
                     st.subheader("💡 Saran Pengembangan & Rekomendasi Resume")
                     for rec in recommendations:
+                        rec_html = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", rec)
                         st.markdown(f"""
                         <div class="recom-box">
-                            {rec}
+                            {rec_html}
                         </div>
                         """, unsafe_allow_html=True)
                         
-                    # 7. CV Text Preview (Collapsible)
                     with st.expander("📄 Tinjau Teks Hasil Ekstraksi Resume"):
                         st.text_area("Isi Teks Resume yang Terdeteksi:", value=cv_text, height=220, disabled=True)
                         
