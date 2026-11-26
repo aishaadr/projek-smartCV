@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # Cache model loading across Streamlit reruns
-@st.cache_resource(show_spinner="Memuat model NLP (all-MiniLM-L6-v2 & KeyBERT)...")
+@st.cache_resource(show_spinner="Memuat model NLP Multilingual (paraphrase-multilingual-MiniLM-L12-v2 & KeyBERT)...")
 def load_cached_models():
     return get_models()
 
@@ -213,11 +213,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🧠 Arsitektur Model")
     st.markdown("""
-    - **Embedder**: `all-MiniLM-L6-v2`  
-      *(Hugging Face Sentence-Transformers)*
+    - **Embedder**: `paraphrase-multilingual-MiniLM-L12-v2`  
+      *(Hugging Face Sentence-Transformers — 50+ Bahasa)*
     - **Skill Extractor**: Hybrid (Industry Taxonomy + Bilingual Synonyms + KeyBERT)
     - **Language Support**: Dwibahasa (Bahasa Indonesia & English)
-    - **Execution Device**: CPU (Stabil & Responsif)
+    - **Execution Device**: CPU (Full Lokal)
     """)
     
     st.markdown("---")

@@ -11,7 +11,7 @@
 
 ## 🌟 Fitur Utama
 
-- **Contextual Semantic Matching**: Menghitung kemiripan makna antara resume dan deskripsi lowongan menggunakan model `all-MiniLM-L6-v2` dari **Sentence-Transformers** di CPU.
+- **Contextual Semantic Matching**: Menghitung kemiripan makna antara resume dan deskripsi lowongan menggunakan model multilingual `paraphrase-multilingual-MiniLM-L12-v2` dari **Sentence-Transformers** di CPU secara lokal.
 - **Hybrid Skill Extraction**: Menggabungkan taksonomi kompetensi industri (AI/Data, Web/RPL, IT Support/TKJ, UI/UX-DKV, Admin Data), pemetaan sinonim dwibahasa (ID/EN), serta **KeyBERT**.
 - **Metrik Rekrutmen Objektif**: Menampilkan Skor Kecocokan, Skill Wajib Terpenuhi (`X/Y`), Kemiripan Konteks (*Cosine Similarity*), dan Skill Nilai Plus.
 - **Actionable Gap Analysis**: Mengidentifikasi keahlian yang belum tercantum (*missing skills*) beserta saran pengembangan resume yang spesifik.

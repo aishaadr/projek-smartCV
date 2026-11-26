@@ -14,7 +14,7 @@ _MODEL_CACHE: Optional[Tuple[SentenceTransformer, KeyBERT]] = None
 def get_models() -> Tuple[SentenceTransformer, KeyBERT]:
     global _MODEL_CACHE
     if _MODEL_CACHE is None:
-        embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
         kw_model = KeyBERT(model=embedder)
         _MODEL_CACHE = (embedder, kw_model)
     return _MODEL_CACHE
