@@ -180,13 +180,35 @@ def baseline_tfidf_score(cv_text: str, jd_text: str) -> float:
     return round(sim * 100, 1)
 
 
+def compute_classification_metrics(scores: list, labels: list, threshold: int = 60) -> dict:
+    tp = fp = fn = tn = 0
+    for s, y in zip(scores, labels):
+        pred = s >= threshold
+        if pred and y:
+            tp += 1
+        elif pred and not y:
+            fp += 1
+        elif not pred and y:
+            fn += 1
+        else:
+            tn += 1
+    total = tp + fp + fn + tn
+    accuracy = (tp + tn) / total * 100 if total else 0.0
+    precision = tp / (tp + fp) * 100 if (tp + fp) else 0.0
+    recall = tp / (tp + fn) * 100 if (tp + fn) else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "accuracy": accuracy, "precision": precision, "recall": recall, "f1": f1,
+    }
+
+
 def summarize_pure_metrics(scores: list, labels: list) -> dict:
     pos_scores = [s for s, y in zip(scores, labels) if y]
     neg_scores = [s for s, y in zip(scores, labels) if not y]
     avg_pos = sum(pos_scores) / len(pos_scores)
     avg_neg = sum(neg_scores) / len(neg_scores)
     sep_gap = avg_pos - avg_neg
-    # Pure continuous accuracy: 100 - Mean Absolute Error against ideal (100% for match, 0% for mismatch)
     mae = sum(abs((100.0 if y else 0.0) - s) for s, y in zip(scores, labels)) / len(scores)
     pure_accuracy = 100.0 - mae
     roc_auc = roc_auc_score([1 if y else 0 for y in labels], scores) * 100
@@ -200,7 +222,7 @@ def summarize_pure_metrics(scores: list, labels: list) -> dict:
     }
 
 
-def run_benchmark() -> None:
+def run_benchmark(threshold: int = 60) -> None:
     t0 = time.perf_counter()
     models = get_models()
     load_time = time.perf_counter() - t0
@@ -237,20 +259,26 @@ def run_benchmark() -> None:
             f"{case['name']:<48} | {scv_score:>6}% | {tf_score:>5.1f}% | {target_label:>7}"
         )
 
+    scv_cls = compute_classification_metrics(scv_scores, labels, threshold=threshold)
+    tf_cls = compute_classification_metrics(tf_scores, labels, threshold=threshold)
     scv_m = summarize_pure_metrics(scv_scores, labels)
     tf_m = summarize_pure_metrics(tf_scores, labels)
     peak_ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 
-    print("\n=== PURE BENCHMARK COMPARISON (NO THRESHOLD, 12 CASES) ===")
-    print(f"{'Metric':<28} | {'Baseline (TF-IDF)':>17} | {'SmartCV (HF + Hybrid)':>21}")
-    print("-" * 72)
-    print(f"{'Avg Score (CV Cocok)':<28} | {tf_m['avg_pos']:>16.1f}% | {scv_m['avg_pos']:>20.1f}%")
-    print(f"{'Avg Score (CV Beda Bidang)':<28} | {tf_m['avg_neg']:>16.1f}% | {scv_m['avg_neg']:>20.1f}%")
-    print(f"{'Separation Gap (Selisih)':<28} | {tf_m['sep_gap']:>16.1f}% | {scv_m['sep_gap']:>20.1f}%")
-    print(f"{'Pure Accuracy (100 - MAE)':<28} | {tf_m['pure_accuracy']:>16.1f}% | {scv_m['pure_accuracy']:>20.1f}%")
-    print(f"{'ROC-AUC (Ranking Pure)':<28} | {tf_m['roc_auc']:>16.1f}% | {scv_m['roc_auc']:>20.1f}%")
-    print(f"{'Avg CPU Latency':<28} | {sum(tf_latencies)/len(tf_latencies):>15.3f}s | {sum(scv_latencies)/len(scv_latencies):>19.3f}s")
-    print(f"{'Peak RAM (Process)':<28} | {'-':>17} | {peak_ram_mb:>18.1f} MB")
+    print(f"\n=== BENCHMARK COMPARISON (12 CASES, THRESHOLD = {threshold}%) ===")
+    print(f"{'Metric':<28} | {'Baseline (TF-IDF)':>17} | {'SmartCV (Pretrained DL)':>23}")
+    print("-" * 74)
+    print(f"{'Accuracy (Threshold 60%)':<28} | {tf_cls['accuracy']:>16.1f}% | {scv_cls['accuracy']:>22.1f}%")
+    print(f"{'Precision (Threshold 60%)':<28} | {tf_cls['precision']:>16.1f}% | {scv_cls['precision']:>22.1f}%")
+    print(f"{'Recall (Threshold 60%)':<28} | {tf_cls['recall']:>16.1f}% | {scv_cls['recall']:>22.1f}%")
+    print(f"{'F1-Score (Threshold 60%)':<28} | {tf_cls['f1']:>16.1f}% | {scv_cls['f1']:>22.1f}%")
+    print(f"{'Avg Score (CV Cocok)':<28} | {tf_m['avg_pos']:>16.1f}% | {scv_m['avg_pos']:>22.1f}%")
+    print(f"{'Avg Score (CV Beda Bidang)':<28} | {tf_m['avg_neg']:>16.1f}% | {scv_m['avg_neg']:>22.1f}%")
+    print(f"{'Separation Gap (Selisih)':<28} | {tf_m['sep_gap']:>16.1f}% | {scv_m['sep_gap']:>22.1f}%")
+    print(f"{'Pure Accuracy (100 - MAE)':<28} | {tf_m['pure_accuracy']:>16.1f}% | {scv_m['pure_accuracy']:>22.1f}%")
+    print(f"{'ROC-AUC':<28} | {tf_m['roc_auc']:>16.1f}% | {scv_m['roc_auc']:>22.1f}%")
+    print(f"{'Avg CPU Latency':<28} | {sum(tf_latencies)/len(tf_latencies):>15.3f}s | {sum(scv_latencies)/len(scv_latencies):>21.3f}s")
+    print(f"{'Peak RAM (Process)':<28} | {'-':>17} | {peak_ram_mb:>20.1f} MB")
 
 
 if __name__ == "__main__":
