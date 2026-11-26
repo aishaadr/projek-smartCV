@@ -193,7 +193,7 @@ def baseline_tfidf_score(cv_text: str, jd_text: str) -> int:
     return int(round(sim * 100))
 
 
-def run_benchmark(smartcv_threshold: int = 60, tfidf_threshold: int = 20) -> None:
+def run_benchmark(threshold: int = 60) -> None:
     t0 = time.perf_counter()
     models = get_models()
     load_time = time.perf_counter() - t0
@@ -226,8 +226,8 @@ def run_benchmark(smartcv_threshold: int = 60, tfidf_threshold: int = 20) -> Non
         tf_latencies.append(time.perf_counter() - s2)
 
         for counts, pred in [
-            (scv_counts, scv_score >= smartcv_threshold),
-            (tf_counts, tf_score >= tfidf_threshold),
+            (scv_counts, scv_score >= threshold),
+            (tf_counts, tf_score >= threshold),
         ]:
             if pred and expected:
                 counts["tp"] += 1
@@ -246,10 +246,10 @@ def run_benchmark(smartcv_threshold: int = 60, tfidf_threshold: int = 20) -> Non
     tf_m = compute_metrics(**tf_counts)
     peak_ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 
-    print("\n=== MODEL COMPARISON SUMMARY (12 LABELED CASES, INCLUDING AISHA REAL CV) ===")
+    print("\n=== MODEL COMPARISON SUMMARY (12 LABELED CASES, FAIR THRESHOLD) ===")
     print(f"{'Metric':<20} | {'Baseline (TF-IDF)':>18} | {'SmartCV (HF + Hybrid)':>22}")
     print("-" * 66)
-    print(f"{'Threshold':<20} | {tfidf_threshold:>17}% | {smartcv_threshold:>21}%")
+    print(f"{'Threshold':<20} | {threshold:>17}% | {threshold:>21}%")
     print(f"{'Accuracy':<20} | {tf_m['accuracy']:>17.1f}% | {scv_m['accuracy']:>21.1f}%")
     print(f"{'Precision':<20} | {tf_m['precision']:>17.1f}% | {scv_m['precision']:>21.1f}%")
     print(f"{'Recall':<20} | {tf_m['recall']:>17.1f}% | {scv_m['recall']:>21.1f}%")
